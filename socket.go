@@ -3,6 +3,7 @@ package tradingview
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"sync"
@@ -126,7 +127,8 @@ func (s *Socket) sendConnectionSetupMessages() (err error) {
 	messages := []*SocketMessage{
 		getSocketMessage("set_auth_token", []string{"unauthorized_user_token"}),
 		getSocketMessage("quote_create_session", []string{s.sessionID}),
-		getSocketMessage("quote_set_fields", []string{s.sessionID, "lp", "volume", "bid", "ask"}),
+		// getSocketMessage("quote_set_fields", []string{s.sessionID, "ch", "chp", "lp", "lp_time", "pricescale", "original_name", "pro_name", "short_name", "type", "typespecs", "update_mode", "volume"}),
+		// getSocketMessage("quote_set_fields", []string{s.sessionID, "bid", "ask"}),
 	}
 
 	for _, msg := range messages {
@@ -142,6 +144,7 @@ func (s *Socket) sendConnectionSetupMessages() (err error) {
 func (s *Socket) sendSocketMessage(p *SocketMessage) (err error) {
 	payload, _ := json.Marshal(p)
 	payloadWithHeader := "~m~" + strconv.Itoa(len(payload)) + "~m~" + string(payload)
+	// fmt.Printf("Sending WebSocket Message: %s\n", string(payloadWithHeader))
 
 	err = s.conn.WriteMessage(websocket.TextMessage, []byte(payloadWithHeader))
 	if err != nil {
@@ -163,7 +166,7 @@ func (s *Socket) connectionLoop() {
 		var msgType int
 		var msg []byte
 		msgType, msg, readMsgError = s.conn.ReadMessage()
-
+		fmt.Printf("Received WebSocket Message: %s\n", string(msg))
 		go func(msgType int, msg []byte) {
 			if msgType != websocket.TextMessage {
 				return
@@ -234,14 +237,8 @@ func (s *Socket) parseJSON(msg []byte) (symbol string, data *QuoteData, err erro
 		return
 	}
 
-	if decodedMessage.Message == "critical_error" || decodedMessage.Message == "error" {
-		err = errors.New("Error -> " + string(msg))
-		s.onError(err, DecodedMessageHasErrorPropertyErrorContext)
-		return
-	}
-
-	if decodedMessage.Message != "qsd" {
-		err = errors.New("ignored message - Not QSD")
+	if decodedMessage.Message != "qsd" && decodedMessage.Message != "du" {
+		err = errors.New("ignored message - Not QSD or DU")
 		return
 	}
 
@@ -258,27 +255,44 @@ func (s *Socket) parseJSON(msg []byte) (symbol string, data *QuoteData, err erro
 		return
 	}
 
-	var decodedQuoteMessage *QuoteMessage
-	err = mapstructure.Decode(p[1].(map[string]interface{}), &decodedQuoteMessage)
-	if err != nil {
-		s.onError(err, FinalPayloadCantBeParsedErrorContext+" - "+string(msg))
+	if decodedMessage.Message == "qsd" {
+		var decodedQuoteMessage *QuoteMessage
+		err = mapstructure.Decode(p[1].(map[string]interface{}), &decodedQuoteMessage)
+		if err != nil {
+			s.onError(err, FinalPayloadCantBeParsedErrorContext+" - "+string(msg))
+			return
+		}
+
+		if decodedQuoteMessage.Status != "ok" || decodedQuoteMessage.Symbol == "" || decodedQuoteMessage.Data == nil {
+			err = errors.New("There is something wrong with the payload - couldn't be parsed -> " + string(msg))
+			s.onError(err, FinalPayloadHasMissingPropertiesErrorContext)
+			return
+		}
+		symbol = decodedQuoteMessage.Symbol
+		data = decodedQuoteMessage.Data
+	}
+
+	if decodedMessage.Message == "du" {
+		var duMessage DUMessage
+		err = mapstructure.Decode(p[1].(map[string]interface{}), &duMessage)
+		if err != nil {
+			err = errors.New("There is something wrong with the payload - couldn't be parsed -> " + string(msg))
+			return
+		}
+
+		for _, bar := range duMessage.BarData {
+			fmt.Printf("Symbol: %s, Open: %f, Close: %f, High: %f, Low: %f, Volume: %f\n",
+				duMessage.Symbol, bar.Open, bar.Close, bar.High, bar.Low, bar.Volume)
+		}
+
 		return
 	}
 
-	if decodedQuoteMessage.Status != "ok" || decodedQuoteMessage.Symbol == "" || decodedQuoteMessage.Data == nil {
-		err = errors.New("There is something wrong with the payload - couldn't be parsed -> " + string(msg))
-		s.onError(err, FinalPayloadHasMissingPropertiesErrorContext)
-		return
-	}
-	symbol = decodedQuoteMessage.Symbol
-	data = decodedQuoteMessage.Data
 	return
 }
 
 func (s *Socket) onError(err error, context string) {
-	if s.conn != nil {
-		s.conn.Close()
-	}
+	fmt.Printf("Error: %s, Context: %s\n", err.Error(), context)
 	s.OnErrorCallback(err, context)
 }
 
