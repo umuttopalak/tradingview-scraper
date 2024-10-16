@@ -1,4 +1,4 @@
-module github.com/umuttopalak/tradingview-scraper/v2
+module github.com/umuttopalak/tradingview-scraper/v1
 
 go 1.16
 
