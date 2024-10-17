@@ -127,7 +127,7 @@ func (s *Socket) sendConnectionSetupMessages() (err error) {
 	messages := []*SocketMessage{
 		getSocketMessage("set_auth_token", []string{"unauthorized_user_token"}),
 		getSocketMessage("quote_create_session", []string{s.sessionID}),
-		// getSocketMessage("quote_set_fields", []string{s.sessionID, "ch", "chp", "lp", "lp_time", "pricescale", "original_name", "pro_name", "short_name", "type", "typespecs", "update_mode", "volume"}),
+		getSocketMessage("quote_set_fields", []string{s.sessionID, "ch", "chp", "lp", "lp_time", "pricescale", "original_name", "pro_name", "short_name", "type", "typespecs", "update_mode", "volume"}),
 		// getSocketMessage("quote_set_fields", []string{s.sessionID, "bid", "ask"}),
 	}
 
@@ -166,7 +166,7 @@ func (s *Socket) connectionLoop() {
 		var msgType int
 		var msg []byte
 		msgType, msg, readMsgError = s.conn.ReadMessage()
-		fmt.Printf("Received WebSocket Message: %s\n", string(msg))
+		// fmt.Printf("Received WebSocket Message: %s\n", string(msg))
 		go func(msgType int, msg []byte) {
 			if msgType != websocket.TextMessage {
 				return
